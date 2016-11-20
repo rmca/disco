@@ -1,13 +1,19 @@
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Disco.Types where
 
-import           Unbound.LocallyNameless
+import           Generics.MultiRec
+import           Generics.MultiRec.TH
+
+data Name a = Free String | Bound Int
+  deriving (Show, Functor)
 
 -- | A program is a list of declarations.
 type Prog = [Decl]
@@ -15,11 +21,11 @@ type Prog = [Decl]
 -- | A declaration is either a type declaration or (one clause of a) definition.
 data Decl where
   DType :: Name Term -> Type -> Decl
-  DDefn :: Name Term -> Bind [Pattern] Term -> Decl
+  DDefn :: Name Term -> ([Pattern], Term) -> Decl
   deriving Show
 
 -- | Injections into a sum type (inl or inr) have a "side" (L or R).
-data Side = L | R
+data Side = LS | RS
   deriving (Show, Eq, Enum)
 
 -- | Unary operators.
@@ -38,7 +44,7 @@ data Term where
   TVar   :: Name Term -> Term                  -- ^ Variable
   TUnit  :: Term                               -- ^ Unit ()
   TBool  :: Bool -> Term                       -- ^ Boolean
-  TAbs   :: Bind (Name Term) Term -> Term      -- ^ Anonymous function abstraction
+  TAbs   :: (Name Term, Term) -> Term      -- ^ Anonymous function abstraction
   TJuxt  :: Term -> Term -> Term               -- ^ Juxtaposition (can be either
                                                --   function application or multiplication)
   TPair  :: Term -> Term -> Term               -- ^ Ordered pairs (x,y)
@@ -46,7 +52,7 @@ data Term where
   TNat   :: Integer -> Term                    -- ^ A natural number
   TUn    :: UOp -> Term -> Term                -- ^ Application of a unary operator
   TBin   :: BOp -> Term -> Term -> Term        -- ^ Application of a binary operator
-  TLet   :: Bind (Name Term, Embed Term) Term -> Term
+  TLet   :: ((Name Term, Term), Term) -> Term
                                                -- ^ Non-recursive let expression
                                                --   (let x = t1 in t2)
   TCase  :: [Branch] -> Term                   -- ^ A case expression
@@ -58,17 +64,17 @@ data Term where
 -- | A branch of a case is a list of guards with an accompanying term.
 --   The guards scope over the term.  Additionally, each guard scopes
 --   over subsequent guards.
-type Branch = Bind Guards Term
+type Branch = (Guards, Term)
 
 data Guards where
   GEmpty :: Guards
-  GCons  :: Rebind Guard Guards -> Guards
+  GCons  :: (Guard, Guards) -> Guards
   deriving Show
 
 -- | A single guard in a branch.
 data Guard where
-  GIf   :: Embed Term -> Guard             -- ^ Boolean guard (if <test>)
-  GWhen :: Embed Term -> Pattern -> Guard  -- ^ Pattern guard (when term = pat)
+  GIf   :: Term -> Guard             -- ^ Boolean guard (if <test>)
+  GWhen :: Term -> Pattern -> Guard  -- ^ Pattern guard (when term = pat)
   deriving Show
 
 -- | Patterns.
@@ -97,27 +103,39 @@ data Type where
   TyQ      :: Type                  -- ^ Rationals
   deriving (Show, Eq)
 
-derive [''Side, ''UOp, ''BOp, ''Term, ''Guards, ''Guard, ''Pattern, ''Type]
+-- derive [''Side, ''UOp, ''BOp, ''Term, ''Guards, ''Guard, ''Pattern, ''Type]
 
-instance Alpha Side
-instance Alpha UOp
-instance Alpha BOp
-instance Alpha Term
-instance Alpha Guards
-instance Alpha Guard
-instance Alpha Pattern
-instance Alpha Type
+-- instance Alpha Side
+-- instance Alpha UOp
+-- instance Alpha BOp
+-- instance Alpha Term
+-- instance Alpha Guards
+-- instance Alpha Guard
+-- instance Alpha Pattern
+-- instance Alpha Type
 
-instance Subst Term Type
-instance Subst Term Guards
-instance Subst Term Guard
-instance Subst Term Pattern
-instance Subst Term Side
-instance Subst Term BOp
-instance Subst Term UOp
-instance Subst Term Term where
-  isvar (TVar x) = Just (SubstName x)
-  isvar _ = Nothing
+-- instance Subst Term Type
+-- instance Subst Term Guards
+-- instance Subst Term Guard
+-- instance Subst Term Pattern
+-- instance Subst Term Side
+-- instance Subst Term BOp
+-- instance Subst Term UOp
+-- instance Subst Term Term where
+--   isvar (TVar x) = Just (SubstName x)
+--   isvar _ = Nothing
 
 isNumTy :: Type -> Bool
 isNumTy ty = ty `elem` [TyN, TyZ, TyQ]
+
+data AST f where
+  Prog    :: AST Prog
+  Decl    :: AST Decl
+  Term    :: AST Term
+  Branch  :: AST Branch
+  Guards  :: AST Guards
+  Guard   :: AST Guard
+  Pattern :: AST Pattern
+  Type    :: AST Type
+
+$(deriveAll ''AST)

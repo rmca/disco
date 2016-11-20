@@ -289,3 +289,20 @@ Talked about this with Harley Eades.  Apply for grant to develop this?
     - Can we do something like -fdefer-type-errors so that
       students files load despite errors.
   + Machine-checkable examples
+
+* Notes on type reconstruction
+
+  I tried switching to an open-recursion approach for our term AST,
+  but this doesn't work well because there are multiple mutually
+  recursive AST types.  There is a potential solution here:
+
+  http://blog.ezyang.com/2013/05/the-ast-typing-problem/#comment-6130
+
+  but it's too heavyweight.
+
+  I'm now trying 'multirec', which seems like it could work well, with
+  the major downside that I don't think it will play well with unbound/RepLib.
+
+  https://www.andres-loeh.de/multirec-chalmers.pdf
+  http://dreixel.net/research/pdf/grtt.pdf
+  http://martijn.van.steenbergen.nl/projects/Selections.pdf
