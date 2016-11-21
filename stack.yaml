@@ -2,15 +2,19 @@
 # For more information, see: http://docs.haskellstack.org/en/stable/yaml_configuration/
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
-# resolver: lts-7.9
-resolver: lts-6.25
+resolver: lts-7.9
+# resolver: lts-6.25
 
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
+- location:
+    git: git@github.com:kosmikus/multirec
+    commit: 19ce71df1fb29b2b4aa27617c0d7106278deaeee
+
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
-  - multirec-0.7.6
+  - multirec-0.7.7
   - unbound-0.5.1
   - RepLib-0.5.4
 
