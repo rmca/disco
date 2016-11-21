@@ -10,12 +10,14 @@ module Disco.Types where
 import           Unbound.LocallyNameless
 
 -- | A program is a list of declarations.
-type Prog = [Decl]
+type Prog x = (x, [Decl x])
+
+type Decl x = (x, Decl' x)
 
 -- | A declaration is either a type declaration or (one clause of a) definition.
-data Decl where
-  DType :: Name Term -> Type -> Decl
-  DDefn :: Name Term -> Bind [Pattern] Term -> Decl
+data Decl' x where
+  DType :: Name (Term x) -> Type -> Decl' x
+  DDefn :: Name (Term x) -> Bind [Pattern x] (Term x) -> Decl' x
   deriving Show
 
 -- | Injections into a sum type (inl or inr) have a "side" (L or R).
@@ -33,54 +35,58 @@ data BOp = Add | Sub | Mul | Div | Exp | Eq | Neq | Lt | Gt | Leq | Geq | And | 
 
 -- XXX todo add TRat with ability to parse decimal notation
 
+type Term x = (x, Term' x)
+
 -- | Terms.
-data Term where
-  TVar   :: Name Term -> Term                  -- ^ Variable
-  TUnit  :: Term                               -- ^ Unit ()
-  TBool  :: Bool -> Term                       -- ^ Boolean
-  TAbs   :: Bind (Name Term) Term -> Term      -- ^ Anonymous function abstraction
-  TJuxt  :: Term -> Term -> Term               -- ^ Juxtaposition (can be either
+data Term' x where
+  TVar   :: Name (Term x) -> Term' x                  -- ^ Variable
+  TUnit  :: Term' x                               -- ^ Unit ()
+  TBool  :: Bool -> Term' x                       -- ^ Boolean
+  TAbs   :: Bind (Name (Term x)) (Term x) -> Term' x      -- ^ Anonymous function abstraction
+  TJuxt  :: Term x -> Term x -> Term' x               -- ^ Juxtaposition (can be either
                                                --   function application or multiplication)
-  TPair  :: Term -> Term -> Term               -- ^ Ordered pairs (x,y)
-  TInj   :: Side -> Term -> Term               -- ^ Injection into a sum type
-  TNat   :: Integer -> Term                    -- ^ A natural number
-  TUn    :: UOp -> Term -> Term                -- ^ Application of a unary operator
-  TBin   :: BOp -> Term -> Term -> Term        -- ^ Application of a binary operator
-  TLet   :: Bind (Name Term, Embed Term) Term -> Term
+  TPair  :: Term x -> Term x -> Term' x               -- ^ Ordered pairs (x,y)
+  TInj   :: Side -> Term x -> Term' x               -- ^ Injection into a sum type
+  TNat   :: Integer -> Term' x                    -- ^ A natural number
+  TUn    :: UOp -> Term x -> Term' x                -- ^ Application of a unary operator
+  TBin   :: BOp -> Term x -> Term x -> Term' x        -- ^ Application of a binary operator
+  TLet   :: Bind (Name (Term x), Embed (Term x)) (Term x) -> Term' x
                                                -- ^ Non-recursive let expression
                                                --   (let x = t1 in t2)
-  TCase  :: [Branch] -> Term                   -- ^ A case expression
+  TCase  :: [Branch x] -> Term' x                   -- ^ A case expression
                                                --   consists of a list
                                                --   of branches.
-  TAscr  :: Term -> Type -> Term               -- ^ Type ascription (expr : type)
+  TAscr  :: Term x -> Type -> Term' x               -- ^ Type ascription (expr : type)
   deriving Show
 
 -- | A branch of a case is a list of guards with an accompanying term.
 --   The guards scope over the term.  Additionally, each guard scopes
 --   over subsequent guards.
-type Branch = Bind Guards Term
+type Branch x = Bind (Guards x) (Term x)
 
-data Guards where
-  GEmpty :: Guards
-  GCons  :: Rebind Guard Guards -> Guards
+data Guards x where
+  GEmpty :: Guards x
+  GCons  :: Rebind (Guard x) (Guards x) -> Guards x
   deriving Show
 
 -- | A single guard in a branch.
-data Guard where
-  GIf   :: Embed Term -> Guard             -- ^ Boolean guard (if <test>)
-  GWhen :: Embed Term -> Pattern -> Guard  -- ^ Pattern guard (when term = pat)
+data Guard x where
+  GIf   :: Embed (Term x) -> Guard x             -- ^ Boolean guard (if <test>)
+  GWhen :: Embed (Term x) -> (Pattern x) -> Guard x  -- ^ Pattern guard (when term = pat)
   deriving Show
 
+type Pattern x = (x, Pattern' x)
+
 -- | Patterns.
-data Pattern where
-  PVar  :: Name Term -> Pattern             -- ^ Variable
-  PWild :: Pattern                          -- ^ Wildcard _
-  PUnit :: Pattern                          -- ^ Unit ()
-  PBool :: Bool -> Pattern                  -- ^ Literal boolean
-  PPair :: Pattern -> Pattern -> Pattern    -- ^ Pair pattern (pat1, pat2)
-  PInj  :: Side -> Pattern -> Pattern       -- ^ Injection pattern (inl pat or inr pat)
-  PNat  :: Integer -> Pattern               -- ^ Literal natural number pattern
-  PSucc :: Pattern -> Pattern               -- ^ Successor pattern, (succ n)
+data Pattern' x where
+  PVar  :: Name (Term x) -> Pattern' x             -- ^ Variable
+  PWild :: Pattern' x                          -- ^ Wildcard _
+  PUnit :: Pattern' x                         -- ^ Unit ()
+  PBool :: Bool -> Pattern' x                  -- ^ Literal boolean
+  PPair :: Pattern x -> Pattern x -> Pattern' x    -- ^ Pair pattern (pat1, pat2)
+  PInj  :: Side -> Pattern x -> Pattern' x       -- ^ Injection pattern (inl pat or inr pat)
+  PNat  :: Integer -> Pattern' x               -- ^ Literal natural number pattern
+  PSucc :: Pattern x -> Pattern' x               -- ^ Successor pattern, (succ n)
   deriving Show
   -- TODO: figure out how to match on Z or Q!
 
@@ -97,25 +103,25 @@ data Type where
   TyQ      :: Type                  -- ^ Rationals
   deriving (Show, Eq)
 
-derive [''Side, ''UOp, ''BOp, ''Term, ''Guards, ''Guard, ''Pattern, ''Type]
+derive [''Side, ''UOp, ''BOp, ''Term', ''Guards, ''Guard, ''Pattern', ''Type]
 
 instance Alpha Side
 instance Alpha UOp
 instance Alpha BOp
-instance Alpha Term
-instance Alpha Guards
-instance Alpha Guard
-instance Alpha Pattern
+instance Alpha (Term' x)
+instance Alpha (Guards x)
+instance Alpha (Guard x)
+instance Alpha (Pattern' x)
 instance Alpha Type
 
-instance Subst Term Type
-instance Subst Term Guards
-instance Subst Term Guard
-instance Subst Term Pattern
-instance Subst Term Side
-instance Subst Term BOp
-instance Subst Term UOp
-instance Subst Term Term where
+instance Subst (Term' x) Type
+instance Subst (Term' x) (Guards x)
+instance Subst (Term' x) (Guard x)
+instance Subst (Term' x) (Pattern' x)
+instance Subst (Term' x) Side
+instance Subst (Term' x) BOp
+instance Subst (Term' x) UOp
+instance Subst (Term' x) (Term' x) where
   isvar (TVar x) = Just (SubstName x)
   isvar _ = Nothing
 
