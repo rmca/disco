@@ -24,6 +24,7 @@ module Disco.AST.Core
 
          -- * Case expressions and patterns
        , CBranch, CGuards(..), CPattern(..)
+       , CPOp(..), CArithPat(..)
        )
        where
 
@@ -130,18 +131,42 @@ data CPattern where
   --   j@ and @pats@ all match @tms@ recursively.
   CPCons :: Int -> [CPattern] -> CPattern
 
-  -- | A natural number pattern.
-  CPNat  :: Integer -> CPattern
+  -- | A literal rational number.
+  CPNum  :: Rational -> CPattern
 
   -- | A successor pattern, @S p@.
   CPSucc :: CPattern -> CPattern
 
+  -- | XXX
+  CPArith :: CArithPat -> CPattern
+
   deriving Show
 
-derive [''Core, ''Op, ''CPattern, ''CGuards]
+-- | XXX
+data CPOp
+  = CPNeg     -- ^ XXX
+  | CPAdd     -- ^ XXX
+  | CPMul     -- ^ XXX
+  | CPRecip   -- ^ XXX
+  deriving Show
+
+-- | XXX
+data CArithPat where
+
+  -- | XXX
+  CAPVar :: Name Core -> CArithPat
+
+  -- | XXX
+  CAPOp  :: CPOp -> Rational -> CArithPat -> CArithPat
+
+  deriving Show
+
+derive [''Core, ''Op, ''CPattern, ''CGuards, ''CPOp, ''CArithPat]
 
 instance Alpha Core
 instance Alpha Op
 instance Alpha CPattern
 instance Alpha CGuards
-
+instance Alpha CPOp
+instance Alpha CArithPat
+instance Alpha Rational

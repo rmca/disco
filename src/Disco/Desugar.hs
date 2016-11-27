@@ -31,6 +31,9 @@ module Disco.Desugar
        )
        where
 
+import           Control.Arrow           ((+++))
+import           Data.Ratio
+
 import           Unbound.LocallyNameless
 
 import           Disco.AST.Core
@@ -175,9 +178,39 @@ desugarPattern PUnit         = CPCons 0 []
 desugarPattern (PBool b)     = CPCons (fromEnum b) []
 desugarPattern (PPair p1 p2) = CPCons 0 [desugarPattern p1, desugarPattern p2]
 desugarPattern (PInj s p)    = CPCons (fromEnum s) [desugarPattern p]
-desugarPattern (PNat n)      = CPNat n
+desugarPattern (PNat n)      = CPNum (n%1)
 desugarPattern (PSucc p)     = CPSucc (desugarPattern p)
 desugarPattern (PCons p1 p2) = CPCons 1 [desugarPattern p1, desugarPattern p2]
 desugarPattern (PList ps)    = foldr (\p cp -> CPCons 1 [desugarPattern p, cp])
                                      (CPCons 0 [])
                                      ps
+desugarPattern p@(PNeg {})   = either CPArith CPNum $ desugarArithPattern p
+desugarPattern p@(PArith {}) = either CPArith CPNum $ desugarArithPattern p
+
+
+-- | XXX
+desugarArithPattern :: Pattern -> Either CArithPat Rational
+desugarArithPattern (PVar x) = Left $ CAPVar (translate x)
+desugarArithPattern (PNat n) = Right (n % 1)
+desugarArithPattern (PNeg p) = CAPOp CPNeg 0 +++ negate $ desugarArithPattern p
+desugarArithPattern (PArith op p1 p2) =
+  case (desugarArithPattern p1, desugarArithPattern p2) of
+    (Right v1, Right v2) -> Right (interpOp op v1 v2)
+    (Left p, Right v)    -> Left $ case op of
+      PAdd -> CAPOp CPAdd v p
+      PMul -> CAPOp CPMul v p
+      PSub -> CAPOp CPAdd (negate v) p
+      PDiv -> CAPOp CPMul (1/v) p
+    (Right v, Left p)    -> Left $ case op of
+      PAdd -> CAPOp CPAdd v p
+      PMul -> CAPOp CPMul v p
+      PSub -> CAPOp CPAdd v (CAPOp CPNeg 0 p)
+      PDiv -> CAPOp CPRecip v p
+    _ -> error "Impossible! Multiple variables in desugarArithPattern"
+  where
+    interpOp PAdd = (+)
+    interpOp PMul = (*)
+    interpOp PSub = (-)
+    interpOp PDiv = (/)
+
+desugarArithPattern p = error $ "Impossible!  Non-arith pattern in desugarArithPattern: " ++ show p

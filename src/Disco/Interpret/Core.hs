@@ -342,9 +342,9 @@ match v (CPCons i ps) = do
       case res of
         Nothing -> noMatch
         Just es -> return $ Just (M.unions es)
-match v (CPNat n)     = do
+match v (CPNum n)     = do
   VNum m <- whnfV v
-  case m == n % 1 of
+  case m == n of
     False -> noMatch
     True  -> ok
 match v (CPSucc p) = do

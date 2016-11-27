@@ -1,0 +1,5 @@
+hyperbin : N -> N;
+hyperbin n =
+  { 1                           when n = 0
+  { hyperbin(m)                 when n = 2m+1
+  { hyperbin(m+1) + hyperbin(m) when n = 2m+2

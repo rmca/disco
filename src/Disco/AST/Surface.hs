@@ -26,7 +26,7 @@ module Disco.AST.Surface
        , Term(..)
 
          -- * Case expressions and patterns
-       , Branch, Guards(..), Guard(..), Pattern(..)
+       , Branch, Guards(..), Guard(..), Pattern(..), PArithOp(..)
        )
        where
 
@@ -205,10 +205,19 @@ data Pattern where
   -- | List pattern @[p1, .., pn]@.
   PList :: [Pattern] -> Pattern
 
-  deriving Show
-  -- TODO: figure out how to match on Z or Q!
+  -- | Negation pattern @-p@.
+  PNeg :: Pattern -> Pattern
 
-derive [''Side, ''UOp, ''BOp, ''Term, ''Guards, ''Guard, ''Pattern]
+  -- | Arithmetic pattern, like @x+1@ or @2/3@ or @2x + 2@.
+  PArith :: PArithOp -> Pattern -> Pattern -> Pattern
+
+  deriving Show
+
+-- | Arithmetic operators that can appear in patterns.
+data PArithOp = PAdd | PSub | PMul | PDiv
+  deriving Show
+
+derive [''Side, ''UOp, ''BOp, ''Term, ''Guards, ''Guard, ''Pattern, ''PArithOp]
 
 instance Alpha Side
 instance Alpha UOp
@@ -217,11 +226,13 @@ instance Alpha Term
 instance Alpha Guards
 instance Alpha Guard
 instance Alpha Pattern
+instance Alpha PArithOp
 
 instance Subst Term Type
 instance Subst Term Guards
 instance Subst Term Guard
 instance Subst Term Pattern
+instance Subst Term PArithOp
 instance Subst Term Side
 instance Subst Term BOp
 instance Subst Term UOp

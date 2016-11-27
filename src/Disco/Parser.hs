@@ -262,10 +262,20 @@ parsePattern = makeExprParser parseAtomicPattern table <?> "pattern"
               , prefix "inr" (PInj R)
               , prefix "S"   PSucc
               ]
+            , [ infixL "*"  (PArith PMul)
+              , infixL "/"  (PArith PDiv)
+
+                -- This case has to go last in its precedence level!
+              , infixL ""   (PArith PMul)
+              ]
+            , [ infixL "+"  (PArith PAdd)
+              , infixL "-"  (PArith PSub)
+              ]
             , [ infixR "::" PCons ]
             ]
     prefix name fun = Prefix (reserved name >> return fun)
     infixR name fun = InfixR (reservedOp name >> return fun)
+    infixL name fun = InfixL (reservedOp name >> return fun)
 
 -- | Parse an expression built out of unary and binary operators.
 parseExpr :: Parser Term

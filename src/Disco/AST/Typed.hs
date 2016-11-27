@@ -23,7 +23,7 @@ module Disco.AST.Typed
          ATerm(..), getType
 
          -- * Branches and guards
-       , ABranch, AGuards(..), AGuard(..)
+       , ABranch, AGuards(..), AGuard(..), APattern(..)
        )
        where
 
@@ -129,12 +129,28 @@ data AGuard where
   AGIf   :: Embed ATerm -> AGuard
 
   -- | Pattern guard (@when term = pat@)
-  AGWhen :: Embed ATerm -> Pattern -> AGuard
+  AGWhen :: Embed ATerm -> APattern -> AGuard
 
   deriving Show
 
-derive [''ATerm, ''AGuards, ''AGuard]
+data APattern where
+  APVar   :: Type -> Name ATerm -> APattern
+  APWild  :: Type -> APattern
+  APUnit  :: APattern
+  APBool  :: Bool -> APattern
+  APPair  :: Type -> APattern -> APattern -> APattern
+  APInj   :: Type -> Side -> APattern -> APattern
+  APNat   :: Type -> Integer -> APattern
+  APSucc  :: Type -> APattern -> APattern
+  APCons  :: Type -> APattern -> APattern -> APattern
+  APList  :: Type -> [APattern] -> APattern
+  APNeg   :: Type -> APattern -> APattern
+  APArith :: Type -> PArithOp -> APattern -> APattern -> APattern
+  deriving Show
+
+derive [''ATerm, ''AGuards, ''AGuard, ''APattern]
 
 instance Alpha ATerm
 instance Alpha AGuards
 instance Alpha AGuard
+instance Alpha APattern

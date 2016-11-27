@@ -59,12 +59,14 @@ module Disco.Typecheck
 import           Prelude                 hiding (lookup)
 
 import           Control.Applicative     ((<|>))
-import           Control.Arrow           ((&&&))
+import           Control.Arrow           ((&&&), (***))
+import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Data.List               (group, partition, sort)
 import qualified Data.Map                as M
+import           Data.Ratio
 
 import           Unbound.LocallyNameless hiding (comp)
 
@@ -111,6 +113,9 @@ data TCError
   | EmptyCase              -- ^ Case analyses cannot be empty.
   | NoLub Type Type        -- ^ The given types have no lub.
   | PatternType Pattern Type  -- ^ The given pattern should have the type, but it doesn't.
+  | AmbiguousArithPattern Pattern  -- ^ The arith pattern is ambiguous (contains multiple vars).
+  | InvalidArithPattern Pattern -- ^ Invalid subpattern in an arithmetic pattern.
+  | PatternDivByZero Pattern -- ^ Division by zero in an arith pattern.
   | ModQ                   -- ^ Can't do mod on rationals.
   | ExpQ                   -- ^ Can't exponentiate by a rational.
   | RelPmQ                 -- ^ Can't ask about relative primality of rationals.
@@ -576,39 +581,104 @@ inferGuard (GIf (unembed -> t)) = do
   return (AGIf (embed at), emptyCtx)
 inferGuard (GWhen (unembed -> t) p) = do
   at <- infer t
-  ctx <- checkPattern p (getType at)
-  return (AGWhen (embed at) p, ctx)
+  (ctx, ap) <- checkPattern p (getType at)
+  return (AGWhen (embed at) ap, ctx)
 
 -- XXX todo: check for nonlinear patterns.
 -- Nonlinear patterns can desugar to equality checks!
 -- Currently  { x when (3,4) = (x,x)   evaluates without error to 3.
 -- It should be accepted, but fail to match since 3 != 4.
 
+(****) :: (a -> b -> c) -> (d -> e -> f) -> (a,d) -> (b,e) -> (c,f)
+(****) f g (a,d) (b,e) = (f a b, g d e)
+
 -- | Check that a pattern has the given type, and return a context of
---   pattern variables bound in the pattern along with their types.
-checkPattern :: Pattern -> Type -> TCM Ctx
-checkPattern (PVar x) ty                    = return $ singleCtx x ty
-checkPattern PWild    _                     = ok
-checkPattern PUnit TyUnit                   = ok
-checkPattern (PBool _) TyBool               = ok
-checkPattern (PPair p1 p2) (TyPair ty1 ty2) =
-  joinCtx <$> checkPattern p1 ty1 <*> checkPattern p2 ty2
-checkPattern (PInj L p) (TySum ty1 _)       = checkPattern p ty1
-checkPattern (PInj R p) (TySum _ ty2)       = checkPattern p ty2
-checkPattern (PNat _)   ty | isSub TyN ty   = ok
+--   pattern variables bound in the pattern along with their types,
+--   and a type-annotated version of the pattern.
+checkPattern :: Pattern -> Type -> TCM (Ctx, APattern)
+checkPattern (PVar x) ty
+  = return $ (singleCtx x ty, APVar ty (translate x))
+checkPattern PWild    ty                    = ok (APWild ty)
+checkPattern PUnit TyUnit                   = ok APUnit
+checkPattern (PBool b) TyBool               = ok (APBool b)
+checkPattern (PPair p1 p2) ty@(TyPair ty1 ty2) =
+  (joinCtx **** APPair ty) <$> checkPattern p1 ty1 <*> checkPattern p2 ty2
+checkPattern (PInj L p) ty@(TySum ty1 _)    = (_2 %~ APInj ty L) <$> checkPattern p ty1
+checkPattern (PInj R p) ty@(TySum _ ty2)    = (_2 %~ APInj ty R) <$> checkPattern p ty2
+checkPattern (PNat n)   ty | isSub TyN ty   = ok (APNat ty n)
   -- we can match any supertype of TyN against a Nat pattern
-checkPattern (PSucc p)  TyN                 = checkPattern p TyN
-checkPattern (PCons p1 p2) (TyList ty)      =
-  joinCtx <$> checkPattern p1 ty <*> checkPattern p2 (TyList ty)
-checkPattern (PList ps) (TyList ty) =
-  joinCtxs <$> mapM (flip checkPattern ty) ps
+
+  -- XXX todo remove S patterns once arith patterns are working
+checkPattern (PSucc p)  TyN                 = (_2 %~ APSucc TyN) <$> checkPattern p TyN
+checkPattern (PCons p1 p2) ty@(TyList ety)      =
+  (joinCtx **** APCons ty) <$> checkPattern p1 ety <*> checkPattern p2 ty
+checkPattern (PList ps) ty@(TyList ety) =
+  ((joinCtxs *** APList ty) . unzip) <$> mapM (flip checkPattern ety) ps
+checkPattern p@(PNeg {}) ty
+  | not (isSub TyN ty) = throwError undefined   -- XXX todo
+  | otherwise          = checkArithPatternTop p ty
+checkPattern p@(PArith {}) ty
+  | not (isSub TyN ty) = throwError undefined   -- XXX todo
+  | otherwise          = checkArithPatternTop p ty
 
 checkPattern p ty = throwError (PatternType p ty)
 
+-- | XXX comment me
+checkArithPatternTop :: Pattern -> Type -> TCM (Ctx, APattern)
+checkArithPatternTop p ty = either id (const emptyCtx) <$> checkArithPattern p ty
+
+-- | Check an arithmetic pattern (/e.g./ @2x + 3@).  To typecheck it
+--   must be solvable at the given type, that is, it must contain at
+--   most one variable and it must be possible to determine uniquely
+--   whether there is a value for the variable, /at the same type/,
+--   which causes the pattern to match.  For example,
+--
+--   * @2x + 3@ is a valid pattern at type N, since for any given
+--   natural @n@, it is possible to determine the unique natural value
+--   for @x@ which makes @2x + 3 = n@---or that no such @x@ exists.
+--
+--   * @2x + 3@ is a valid pattern at type Q (which will always match).
+--
+--   * @x + y@ is not a valid pattern at any type, since we cannot
+--   unambiguously determine unique values for @x@ and @y@.
+--
+--   * @3x + _@ is not a valid pattern since the wildcard makes it
+--   impossible to determine a unique value for @x@.
+--
+--   Returns either a context of variable bindings (there will be at
+--   most one), or the constant numeric value of the pattern.
+checkArithPattern :: Pattern -> Type -> TCM (Either Ctx Rational, APattern)
+checkArithPattern (PVar x) ty           = return $ Left (singleCtx x ty)
+checkArithPattern (PNat n) _            = return $ Right (n % 1)
+checkArithPattern (PNeg p) ty           = fmap negate <$> checkArithPattern p ty
+checkArithPattern p@(PArith pop p1 p2) ty = do
+  r1 <- checkArithPattern p1 ty
+  r2 <- checkArithPattern p2 ty
+  case (r1, r2) of
+    (Left _, Left _)     -> throwError (AmbiguousArithPattern p)
+    (Right v1, Right v2) -> interpPatternOp pop v1 v2
+    (Left ctx, Right _)  -> return (Left ctx)
+    (Right _, Left ctx)  -> return (Left ctx)
+  where
+    interpPatternOp PAdd v1 v2 = return . Right $ v1 + v2
+    interpPatternOp PSub v1 v2 = return . Right $ v1 - v2
+    interpPatternOp PMul v1 v2 = return . Right $ v1 * v2
+    interpPatternOp PDiv _  0  = throwError $ PatternDivByZero p
+    interpPatternOp PDiv v1 v2 = return . Right $ v1 / v2
+
+-- XXX todo: do a better job checking for ambiguity, e.g.
+-- the pattern 0 * x should not be allowed
+
+-- XXX todo: warn if we can deduce that arithmetic pattern will
+-- definitely never match, e.g. (x + 2/5) at type N
+-- (Need a way to emit & collect warnings.)
+
+checkArithPattern p _ = throwError (InvalidArithPattern p)
+
 -- | Successfully return the empty context.  A convenience method for
 --   checking patterns that bind no variables.
-ok :: TCM Ctx
-ok = return emptyCtx
+ok :: APattern -> TCM (Ctx, APattern)
+ok ap = return (emptyCtx, ap)
 
 -- | Check all the types in a module, returning a context of types for
 --   top-level definitions.
