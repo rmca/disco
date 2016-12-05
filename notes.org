@@ -259,23 +259,16 @@ Talked about this with Harley Eades.  Apply for grant to develop this?
 * Next steps
 
   + Z/Q patterns (general arithmetic patterns?)
+  + polymorphism
   + Multi-clause definitions
-  + chained comparisons
   + Use a single Disco monad for everything?
-  + Parser:
-    - deal with indentation, adding implicit separators etc. so
-      - we don't need semicolons at the ends of lines
-      - nested case works properly
   + Test suite:
     - quick check properties
     - regression test suite
   + Type reconstruction
   + Collect multiple warnings & errors (parsing, type checking)
-
   + LaTeX output mode for pretty-printer
-
-  Other things to do/consider:
-
+  + Markdown for documentation? See cheapskate library --- what Idris uses.
   + Guards
     - Merge if/when into a single syntax?
     - Use syntax "is" for pattern guards?  e.g.  when p is (x,y)
@@ -296,7 +289,11 @@ Talked about this with Harley Eades.  Apply for grant to develop this?
   + playgrounds:
     - Can we do something like -fdefer-type-errors so that
       students files load despite errors.
-  + Machine-checkable examples
+  + Graph reduction?  Don't re-evaluate...
+  + Memoization annotation for functions?
+  + Option for ignoring subtraction/Z check
+  + More sophisticated checking of subtraction for N in a case
+
 * Links
 
   Here's how Idris represents terms: https://github.com/idris-lang/Idris-dev/blob/8ea27ae997ea1e4214ce47ad228bd7c35a891459/src/Idris/Core/TT.hs

@@ -22,6 +22,7 @@ module Disco.AST.Typed
        ( -- * Type-annotated terms
          ATerm(..), getType
 
+       , AProperty
          -- * Branches and guards
        , ABranch, AGuards(..), AGuard(..), APattern(..)
        )
@@ -147,6 +148,8 @@ data APattern where
   APNeg   :: Type -> APattern -> APattern
   APArith :: Type -> PArithOp -> APattern -> APattern -> APattern
   deriving Show
+
+type AProperty = Bind [(Name ATerm, Type)] ATerm
 
 derive [''ATerm, ''AGuards, ''AGuard, ''APattern]
 
