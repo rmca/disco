@@ -154,7 +154,7 @@ data CPOp
 data CArithPat where
 
   -- | XXX
-  CAPVar :: Name Core -> CArithPat
+  CAPVar :: Type -> Name Core -> CArithPat
 
   -- | XXX
   CAPOp  :: CPOp -> Rational -> CArithPat -> CArithPat

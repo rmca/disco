@@ -30,6 +30,8 @@ module Disco.AST.Typed
 
 import           Unbound.LocallyNameless
 
+import qualified Data.Map                as M
+
 import           Disco.AST.Surface
 import           Disco.Types
 
@@ -134,20 +136,50 @@ data AGuard where
 
   deriving Show
 
+type Ctx = M.Map (Name Term) Type
+
 data APattern where
-  APVar   :: Type -> Name ATerm -> APattern
+  APVar   :: Type -> Ctx -> Name ATerm -> APattern
   APWild  :: Type -> APattern
   APUnit  :: APattern
   APBool  :: Bool -> APattern
-  APPair  :: Type -> APattern -> APattern -> APattern
-  APInj   :: Type -> Side -> APattern -> APattern
+  APPair  :: Type -> Ctx -> APattern -> APattern -> APattern
+  APInj   :: Type -> Ctx -> Side -> APattern -> APattern
   APNat   :: Type -> Integer -> APattern
-  APSucc  :: Type -> APattern -> APattern
-  APCons  :: Type -> APattern -> APattern -> APattern
-  APList  :: Type -> [APattern] -> APattern
-  APNeg   :: Type -> APattern -> APattern
-  APArith :: Type -> PArithOp -> APattern -> APattern -> APattern
+  APSucc  :: Type -> Ctx -> APattern -> APattern
+  APCons  :: Type -> Ctx -> APattern -> APattern -> APattern
+  APList  :: Type -> Ctx -> [APattern] -> APattern
+  APNeg   :: Type -> Ctx -> APattern -> APattern
+  APArith :: Type -> Ctx -> PArithOp -> APattern -> APattern -> APattern
   deriving Show
+
+getPatType :: APattern -> Type
+getPatType (APVar ty _ _)       = ty
+getPatType (APWild ty)          = ty
+getPatType APUnit               = TyUnit
+getPatType (APBool _)           = TyBool
+getPatType (APPair ty _ _ _)    = ty
+getPatType (APInj ty _ _ _)     = ty
+getPatType (APNat ty _)         = ty
+getPatType (APSucc ty _ _)      = ty
+getPatType (APCons ty _ _ _)    = ty
+getPatType (APList ty _ _)      = ty
+getPatType (APNeg ty _ _)       = ty
+getPatType (APArith ty _ _ _ _) = ty
+
+getPatCtx :: APattern -> Ctx
+getPatCtx (APVar _ c _)       = c
+getPatCtx (APWild _)          = M.empty
+getPatCtx APUnit              = M.empty
+getPatCtx (APBool _)          = M.empty
+getPatCtx (APPair _ c _ _)    = c
+getPatCtx (APInj _ c _ _)     = c
+getPatCtx (APNat _ _)         = M.empty
+getPatCtx (APSucc _ c _)      = c
+getPatCtx (APCons _ c _ _)    = c
+getPatCtx (APList _ c _)      = c
+getPatCtx (APNeg _ c _)       = c
+getPatCtx (APArith _ c _ _ _) = c
 
 type AProperty = Bind [(Name ATerm, Type)] ATerm
 
@@ -157,3 +189,4 @@ instance Alpha ATerm
 instance Alpha AGuards
 instance Alpha AGuard
 instance Alpha APattern
+instance Alpha Ctx

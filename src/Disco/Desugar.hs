@@ -165,34 +165,32 @@ desugarGuards (AGCons (unrebind -> (ag, ags))) =
       c <- desugarTerm at
       cgs <- desugarGuards ags
       return $ CGCons (rebind (embed c, CPCons (fromEnum True) []) cgs)
-    AGWhen (unembed -> at) p -> do
+    AGWhen (unembed -> at) ap -> do
       c <- desugarTerm at
       cgs <- desugarGuards ags
-      return $ CGCons (rebind (embed c, desugarPattern p) cgs)
+      return $ CGCons (rebind (embed c, desugarPattern ap) cgs)
 
--- | Desugar a pattern.
-desugarPattern :: Pattern -> CPattern
-desugarPattern (PVar x)      = CPVar (translate x)
-desugarPattern PWild         = CPWild
-desugarPattern PUnit         = CPCons 0 []
-desugarPattern (PBool b)     = CPCons (fromEnum b) []
-desugarPattern (PPair p1 p2) = CPCons 0 [desugarPattern p1, desugarPattern p2]
-desugarPattern (PInj s p)    = CPCons (fromEnum s) [desugarPattern p]
-desugarPattern (PNat n)      = CPNum (n%1)
-desugarPattern (PSucc p)     = CPSucc (desugarPattern p)
-desugarPattern (PCons p1 p2) = CPCons 1 [desugarPattern p1, desugarPattern p2]
-desugarPattern (PList ps)    = foldr (\p cp -> CPCons 1 [desugarPattern p, cp])
-                                     (CPCons 0 [])
-                                     ps
-desugarPattern p@(PNeg {})   = either CPArith CPNum $ desugarArithPattern p
-desugarPattern p@(PArith {}) = either CPArith CPNum $ desugarArithPattern p
-
+-- | Desugar a typed pattern.
+desugarPattern :: APattern -> CPattern
+desugarPattern (APVar _ x)      = CPVar (translate x)
+desugarPattern (APWild _)       = CPWild
+desugarPattern APUnit           = CPCons 0 []
+desugarPattern (APBool b)       = CPCons (fromEnum b) []
+desugarPattern (APPair _ p1 p2) = CPCons 0 [desugarPattern p1, desugarPattern p2]
+desugarPattern (APInj _ s p)    = CPCons (fromEnum s) [desugarPattern p]
+desugarPattern (APNat _ n)      = CPNum (n%1)
+desugarPattern (APSucc _ p)     = CPSucc (desugarPattern p)
+desugarPattern (APCons _ p1 p2) = CPCons 1 [desugarPattern p1, desugarPattern p2]
+desugarPattern (APList _ ps)    = foldr (\p cp -> CPCons 1 [desugarPattern p, cp])
+                                        (CPCons 0 [])
+                                        ps
+desugarPattern p@(APNeg {})     = CPArith $ desugarArithPattern p
+desugarPattern p@(APArith {})   = CPArith $ desugarArithPattern p
 
 -- | XXX
-desugarArithPattern :: Pattern -> Either CArithPat Rational
-desugarArithPattern (PVar x) = Left $ CAPVar (translate x)
-desugarArithPattern (PNat n) = Right (n % 1)
-desugarArithPattern (PNeg p) = CAPOp CPNeg 0 +++ negate $ desugarArithPattern p
+desugarArithPattern :: APattern -> CArithPat
+desugarArithPattern (APVar ty x) = CAPVar ty (translate x)
+desugarArithPattern (APNeg ty p) = CAPOp CPNeg 0 (desugarArithPattern p)
 desugarArithPattern (PArith op p1 p2) =
   case (desugarArithPattern p1, desugarArithPattern p2) of
     (Right v1, Right v2) -> Right (interpOp op v1 v2)

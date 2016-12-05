@@ -595,28 +595,35 @@ inferGuard (GWhen (unembed -> t) p) = do
 (****) :: (a -> b -> c) -> (d -> e -> f) -> (a,d) -> (b,e) -> (c,f)
 (****) f g (a,d) (b,e) = (f a b, g d e)
 
--- | Check that a pattern has the given type, and return a context of
---   pattern variables bound in the pattern along with their types,
---   and a type-annotated version of the pattern.
-checkPattern :: Pattern -> Type -> TCM (Ctx, APattern)
+-- | Check that a pattern has the given type, and return a
+--   type-annotated version of the pattern.
+checkPattern :: Pattern -> Type -> TCM APattern
 checkPattern (PVar x) ty
-  = return $ (singleCtx x ty, APVar ty (translate x))
+  = return $ APVar ty (singleCtx x ty) (translate x)
 checkPattern PWild    ty                    = ok (APWild ty)
 checkPattern PUnit TyUnit                   = ok APUnit
 checkPattern (PBool b) TyBool               = ok (APBool b)
 checkPattern (PPair p1 p2) ty@(TyPair ty1 ty2) =
-  (joinCtx **** APPair ty) <$> checkPattern p1 ty1 <*> checkPattern p2 ty2
-checkPattern (PInj L p) ty@(TySum ty1 _)    = (_2 %~ APInj ty L) <$> checkPattern p ty1
-checkPattern (PInj R p) ty@(TySum _ ty2)    = (_2 %~ APInj ty R) <$> checkPattern p ty2
+  (\ap1 ap2 -> APPair ty (joinCtx (getPatCtx ap1) (getPatCtx ap2)))
+    <$> checkPattern p1 ty1
+    <*> checkPattern p2 ty2
+checkPattern (PInj L p) ty@(TySum ty1 _)
+  = (\ap -> APInj ty (getPatCtx ap) L) <$> checkPattern p ty1
+checkPattern (PInj R p) ty@(TySum _ ty2)
+  = (\ap -> APInj ty (getPatCtx ap) R) <$> checkPattern p ty2
 checkPattern (PNat n)   ty | isSub TyN ty   = ok (APNat ty n)
   -- we can match any supertype of TyN against a Nat pattern
 
   -- XXX todo remove S patterns once arith patterns are working
-checkPattern (PSucc p)  TyN                 = (_2 %~ APSucc TyN) <$> checkPattern p TyN
+checkPattern (PSucc p)  TyN
+  = (\ap -> APSucc TyN (getPatCtx ap)) <$> checkPattern p TyN
 checkPattern (PCons p1 p2) ty@(TyList ety)      =
-  (joinCtx **** APCons ty) <$> checkPattern p1 ety <*> checkPattern p2 ty
+  (\ap1 ap2 -> APCons ty (joinCtx (getPatCtx ap1) (getPatCtx ap2)))
+    <$> checkPattern p1 ety
+    <*> checkPattern p2 ty
 checkPattern (PList ps) ty@(TyList ety) =
-  ((joinCtxs *** APList ty) . unzip) <$> mapM (flip checkPattern ety) ps
+  (\aps -> APList ty (joinCtxs . map getPatCtx $ aps))
+    <$> mapM (flip checkPattern ety) ps
 checkPattern p@(PNeg {}) ty
   | not (isSub TyN ty) = throwError undefined   -- XXX todo
   | otherwise          = checkArithPatternTop p ty
@@ -627,8 +634,8 @@ checkPattern p@(PArith {}) ty
 checkPattern p ty = throwError (PatternType p ty)
 
 -- | XXX comment me
-checkArithPatternTop :: Pattern -> Type -> TCM (Ctx, APattern)
-checkArithPatternTop p ty = either id (const emptyCtx) <$> checkArithPattern p ty
+checkArithPatternTop :: Pattern -> Type -> TCM APattern
+checkArithPatternTop p ty = checkArithPattern p ty
 
 -- | Check an arithmetic pattern (/e.g./ @2x + 3@).  To typecheck it
 --   must be solvable at the given type, that is, it must contain at
@@ -651,23 +658,30 @@ checkArithPatternTop p ty = either id (const emptyCtx) <$> checkArithPattern p t
 --   Returns either a context of variable bindings (there will be at
 --   most one), or the constant numeric value of the pattern.
 checkArithPattern :: Pattern -> Type -> TCM (Either Ctx Rational, APattern)
-checkArithPattern (PVar x) ty           = return $ Left (singleCtx x ty)
-checkArithPattern (PNat n) _            = return $ Right (n % 1)
-checkArithPattern (PNeg p) ty           = fmap negate <$> checkArithPattern p ty
+checkArithPattern (PVar x) ty
+  = return (Left $ singleCtx x ty, APVar ty (translate x))
+checkArithPattern (PNat n) ty
+  | isSub ty TyQ = return (Right (n % 1), APNat ty n)
+  | otherwise    = throwError undefined  -- XXX
+checkArithPattern (PNeg p) ty
+  = (fmap negate *** APNeg ty) <$> checkArithPattern p ty
 checkArithPattern p@(PArith pop p1 p2) ty = do
   r1 <- checkArithPattern p1 ty
   r2 <- checkArithPattern p2 ty
   case (r1, r2) of
-    (Left _, Left _)     -> throwError (AmbiguousArithPattern p)
-    (Right v1, Right v2) -> interpPatternOp pop v1 v2
-    (Left ctx, Right _)  -> return (Left ctx)
-    (Right _, Left ctx)  -> return (Left ctx)
+    ((Left _, _), (Left _, _))         -> throwError (AmbiguousArithPattern p)
+    ((Right v1, ap1), (Right v2, ap2)) -> do
+      v <- interpPatternOp pop v1 v2
+      return (Right v, APArith ty pop ap1 ap2)
+    ((Left ctx, ap1), (Right _, ap2))  -> return (Left ctx, APArith ty pop ap1 ap2)
+    ((Right _, ap1), (Left ctx, ap2))  -> return (Left ctx, APArith ty pop ap1 ap2)
   where
-    interpPatternOp PAdd v1 v2 = return . Right $ v1 + v2
-    interpPatternOp PSub v1 v2 = return . Right $ v1 - v2
-    interpPatternOp PMul v1 v2 = return . Right $ v1 * v2
+    interpPatternOp :: PArithOp -> Rational -> Rational -> TCM Rational
+    interpPatternOp PAdd v1 v2 = return $ v1 + v2
+    interpPatternOp PSub v1 v2 = return $ v1 - v2
+    interpPatternOp PMul v1 v2 = return $ v1 * v2
     interpPatternOp PDiv _  0  = throwError $ PatternDivByZero p
-    interpPatternOp PDiv v1 v2 = return . Right $ v1 / v2
+    interpPatternOp PDiv v1 v2 = return $ v1 / v2
 
 -- XXX todo: do a better job checking for ambiguity, e.g.
 -- the pattern 0 * x should not be allowed
@@ -722,7 +736,7 @@ checkDefn (DDefn x def) = do
   where
     go [] ty body = check body ty
     go (p:ps) (TyArr ty1 ty2) body = do
-      ctx <- checkPattern p ty1
+      (ctx, _apat) <- checkPattern p ty1    -- XXX should we do anything with _apat here?
       extends ctx $ go ps ty2 body
     go _ _ _ = throwError NumPatterns   -- XXX include more info
 checkDefn d = error $ "Impossible! checkDefn called on non-Defn: " ++ show d
