@@ -247,7 +247,7 @@ instance Alpha Guards
 instance Alpha Guard
 instance Alpha Pattern
 
-instance Subst Term Type
+instance Subst Term MonoType
 instance Subst Term Guards
 instance Subst Term Guard
 instance Subst Term Pattern

@@ -95,7 +95,9 @@ type Doc = ReaderT PA LFreshM PP.Doc
 
 --------------------------------------------------
 
-prettyTy :: Type -> Doc
+-- XXX add a function for pretty-printing a quantified type
+
+prettyTy :: MonoType -> Doc
 prettyTy TyVoid           = text "Void"
 prettyTy TyUnit           = text "Unit"
 prettyTy TyBool           = text "Bool"
@@ -111,7 +113,7 @@ prettyTy TyQ              = text "ℚ"
 prettyTy (TyList ty)      = mparens (PA 9 AR) $
   text "List" <+> prettyTy' 9 AR ty
 
-prettyTy' :: Prec -> Assoc -> Type -> Doc
+prettyTy' :: Prec -> Assoc -> MonoType -> Doc
 prettyTy' p a t = local (const (PA p a)) (prettyTy t)
 
 --------------------------------------------------

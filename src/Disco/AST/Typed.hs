@@ -99,9 +99,9 @@ data ATerm where
 -- | Get the type at the root of an 'ATerm'.
 getType :: ATerm -> Type
 getType (ATVar ty _)     = ty
-getType ATUnit           = TyUnit
-getType (ATBool _)       = TyBool
-getType (ATNat _)        = TyN
+getType ATUnit           = mono TyUnit
+getType (ATBool _)       = mono TyBool
+getType (ATNat _)        = mono TyN
 getType (ATAbs ty _)     = ty
 getType (ATApp ty _ _)   = ty
 getType (ATPair ty _ _)  = ty

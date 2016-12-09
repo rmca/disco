@@ -16,59 +16,69 @@
 -----------------------------------------------------------------------------
 
 module Disco.Types
-       ( Type(..)
+       ( Type, MonoType(..), mono
 
        , isNumTy, Strictness(..), strictness
        )
        where
 
 import           Unbound.LocallyNameless
+import           Unbound.LocallyNameless.Ops   (unsafeUnbind)
+import           Unbound.LocallyNameless.Types (SetBind)
 
--- | Types.
-data Type where
-  -- | Type variables (for unification, not polymorphism)
-  TyVar    :: Name Type -> Type
+-- | A type is a monotype together with an optional set of universally
+--   quantified type variables.
+type Type = SetBind [Name MonoType] MonoType
 
-    -- TyVar is for unification variables.  Ideally Type would be parameterized by
-    -- a variable type, then we could use Type' Void to represent
-    -- solved types, but I can't figure out how to make that work with
-    -- unbound.
+-- | Monotypes.
+data MonoType where
+  -- | Type variables (for polymorphism)
+  TyVar    :: Name MonoType -> MonoType
+
+    -- If we later switch to a unification-based system, we will need
+    -- another constructor for unification variables.  Ideally Type
+    -- would be parameterized by a variable type, but I can't figure out
+    -- how to make that work with unbound.
 
   -- | The void type, with no inhabitants.
-  TyVoid   :: Type
+  TyVoid   :: MonoType
 
   -- | The unit type, with one inhabitant.
-  TyUnit   :: Type
+  TyUnit   :: MonoType
 
   -- | Booleans.
-  TyBool   :: Type
+  TyBool   :: MonoType
 
   -- | Function type, T1 -> T2
-  TyArr    :: Type -> Type -> Type
+  TyArr    :: MonoType -> MonoType -> MonoType
 
   -- | Pair type, T1 * T2
-  TyPair   :: Type -> Type -> Type
+  TyPair   :: MonoType -> MonoType -> MonoType
 
   -- | Sum type, T1 + T2
-  TySum    :: Type -> Type -> Type
+  TySum    :: MonoType -> MonoType -> MonoType
 
   -- | Natural numbers
-  TyN      :: Type
+  TyN      :: MonoType
 
   -- | Integers
-  TyZ      :: Type
+  TyZ      :: MonoType
 
   -- | Rationals
-  TyQ      :: Type
+  TyQ      :: MonoType
 
   -- | Lists
-  TyList   :: Type -> Type
+  TyList   :: MonoType -> MonoType
 
   deriving (Show, Eq)
 
+-- | Construct a monotype with no quantification.
+mono :: MonoType -> Type
+mono m = permbind [] m
+
 -- | Check whether a type is a numeric type (N, Z, or Q).
 isNumTy :: Type -> Bool
-isNumTy ty = ty `elem` [TyN, TyZ, TyQ]
+isNumTy ty = snd (unsafeUnbind ty) `elem` [TyN, TyZ, TyQ]
 
 -- | Strictness of a function application or let-expression.
 data Strictness = Strict | Lazy
@@ -80,8 +90,8 @@ strictness ty
   | isNumTy ty = Strict
   | otherwise  = Lazy
 
-derive [''Type, ''Strictness]
+derive [''MonoType, ''Strictness]
 
-instance Alpha Type
+instance Alpha MonoType
 instance Alpha Strictness
 

@@ -121,7 +121,7 @@ instance Show ValFun where
   show _ = "<fun>"
 
 -- | Basic pretty-printing of values.
-prettyValue :: Type -> Value -> String
+prettyValue :: MonoType -> Value -> String
 prettyValue TyUnit (VCons 0 []) = "()"
 prettyValue TyBool (VCons i []) = map toLower (show (toEnum i :: Bool))
 prettyValue (TyList ty) v = prettyList ty v
@@ -140,7 +140,7 @@ prettyValue _ (VNum r)
 
 prettyValue _ _ = error "Impossible! No matching case in prettyValue"
 
-prettyList :: Type -> Value -> String
+prettyList :: MonoType -> Value -> String
 prettyList ty v = "[" ++ go v
   where
     go (VCons 0 []) = "]"
@@ -458,13 +458,13 @@ notOp _ = error "Impossible! notOp called on list of length /= 1"
 ------------------------------------------------------------
 
 -- | Test two expressions for equality at the given type.
-eqOp :: Type -> [Core] -> IM Value
+eqOp :: MonoType -> [Core] -> IM Value
 eqOp ty cs = do
   [v1, v2] <- mapM mkThunk cs
   mkEnum <$> decideEqFor ty v1 v2
 
 -- | Lazily decide equality of two values at the given type.
-decideEqFor :: Type -> Value -> Value -> IM Bool
+decideEqFor :: MonoType -> Value -> Value -> IM Bool
 
 -- To decide equality at a pair type:
 decideEqFor (TyPair ty1 ty2) v1 v2 = do

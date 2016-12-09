@@ -518,7 +518,8 @@ parseInj =
 --   followed by an ascription.
 parseTerm :: Parser Term
 parseTerm = -- trace "parseTerm" $
-  (ascribe <$> parseTerm' <*> optionMaybe (colon *> parseType))
+  (ascribe <$> parseTerm' <*> optionMaybe (colon *> (mono <$> parseType)))
+    -- XXX (mono <$> parseType) - allow quantified types here?? maybe not.
   where
     ascribe t Nothing   = t
     ascribe t (Just ty) = TAscr t ty
@@ -655,9 +656,12 @@ parseExpr = makeExprParser parseAtom table <?> "expression"
     infixR name fun = InfixR (reservedOp name >> return fun)
     infixN name fun = InfixN (reservedOp name >> return fun)
 
+-- XXX add a function for parsing a quantified type
+
 -- | Parse an atomic type.
-parseAtomicType :: Parser Type
+parseAtomicType :: Parser MonoType
 parseAtomicType =
+      -- XXX add a TyVar case
       TyVoid <$ reserved "Void"
   <|> TyUnit <$ reserved "Unit"
   <|> TyBool <$ (reserved "Bool" <|> reserved "B")
@@ -673,11 +677,11 @@ parseAtomicType =
   <|> parens parseType
 
 -- | Parse a type.
-parseType :: Parser Type
+parseType :: Parser MonoType
 parseType = parseTypeExpr <|> parseAtomicType
 
 -- | Parse a type expression built out of binary operators.
-parseTypeExpr :: Parser Type
+parseTypeExpr :: Parser MonoType
 parseTypeExpr = makeExprParser parseAtomicType table <?> "type expression"
   where
     table = [ [ infixR "*" TyPair
