@@ -6,15 +6,10 @@ import Data.List (isPrefixOf)
 
 import System.Console.Haskeline
 
-import Unbound.Generics.LocallyNameless
-
 import Text.Parsec.Error (ParseError)
 
 import Sub2
 import Types
-import Constraints
-import Unify
-import Solve
 
 eval :: String -> IO ()
 eval s = case parse expr s of
@@ -28,6 +23,7 @@ data Error =
   P ParseError | T TypeError
   deriving Show
 
+(<!>) :: Either a c -> (a -> b) -> Either b c
 (<!>) = flip first
 
 tc :: String -> Either Error Sigma

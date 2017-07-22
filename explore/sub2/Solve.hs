@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTSyntax            #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE TemplateHaskell       #-}
 
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
@@ -16,13 +17,14 @@ module Solve
 
 import           Data.Coerce
 
-import           Control.Arrow ((***), (&&&), first, second)
+import           Control.Arrow ((***), (&&&), second)
 import           Data.Map (Map, (!))
 import qualified Data.Map    as M
+import           Data.Maybe (catMaybes)
 import           Data.Set (Set)
 import qualified Data.Set    as S
 
-import           Control.Lens (toListOf, each, (^..), both)
+import           Control.Lens hiding (Cons)
 
 import           Control.Monad.Except
 import           Control.Monad.State
@@ -53,6 +55,24 @@ maybeError e Nothing  = throwError e
 maybeError _ (Just a) = return a
 
 ------------------------------------------------------------
+-- Simplifier state
+------------------------------------------------------------
+
+-- This needs to go here instead of down with the simplifier step
+-- because of TH staging.
+
+data SimplifyState = SS
+  { _constraints :: [Constraint Type]
+  , _curSubst    :: S
+  , _varSorts    :: Map (Name Type) Sort
+  }
+
+makeLenses ''SimplifyState
+
+initSS :: SimplifyState
+initSS = SS [] idS M.empty
+
+------------------------------------------------------------
 -- Top-level solving algorithm
 ------------------------------------------------------------
 
@@ -69,7 +89,7 @@ solveConstraints cs = do
   -- Step 1: check whether the constraints have a weak unifier.  If
   -- not, we know they cannot be solved; if so, we know the
   -- simplification algorithm will terminate.
-  maybeError NoWeakUnifier $ weakUnify (map (either id toEqn) cs)
+  _ <- maybeError NoWeakUnifier $ weakUnify (catMaybes $ map getWeakEqn cs)
 
   -- Step 2: simplify the given constraints, resulting in a set of
   -- atomic subtyping constraints along with a substitution.
@@ -98,7 +118,7 @@ solveConstraints cs = do
 -- Step 2: constraint simplification
 ------------------------------------------------------------
 
-type SimplifyM a = StateT ([Constraint Type], S) (FreshMT (Except SolveError)) a
+type SimplifyM a = StateT SimplifyState (FreshMT (Except SolveError)) a
 
 -- | This step does unification of equality constraints, as well as
 --   structural decomposition of subtyping constraints.  For example,
@@ -113,9 +133,12 @@ type SimplifyM a = StateT ([Constraint Type], S) (FreshMT (Except SolveError)) a
 
 simplify :: [Constraint Type] -> Except SolveError ([(Atom, Atom)], S)
 simplify cs
-  = (fmap . first . map) extractAtoms
-  $ contFreshMT (execStateT simplify' (cs, idS)) n
+  = (\(SS cs' s _) -> (map extractAtoms cs', s))
+  <$> contFreshMT (execStateT simplify' initSimplifyState) n
   where
+
+    -- XXX need to set up initial Sort map?
+    initSimplifyState = initSS & constraints .~ cs
 
     n = succ . maximum0 . map (name2Integer :: Name Type -> _) . toListOf fv $ cs
 
@@ -123,7 +146,7 @@ simplify cs
     maximum0 xs = maximum xs
 
     -- Extract the type atoms from an atomic constraint.
-    extractAtoms (Right (TyAtom a1 :<: TyAtom a2)) = (a1, a2)
+    extractAtoms (CIneqn (TyAtom a1 :<: TyAtom a2)) = (a1, a2)
     extractAtoms c = error $ "simplify left non-atomic or non-subtype constraint " ++ show c
 
     -- Iterate picking one simplifiable constraint and simplifying it
@@ -150,10 +173,10 @@ simplify cs
     -- constraints can be simplified.
     pickSimplifiable :: SimplifyM (Maybe (Constraint Type))
     pickSimplifiable = do
-      cs <- fst <$> get
-      case pick simplifiable cs of
+      cs' <- use constraints
+      case pick simplifiable cs' of
         Nothing     -> return Nothing
-        Just (a,as) -> modify (first (const as)) >> return (Just a)
+        Just (a,as) -> (constraints .= as) >> return (Just a)
 
     -- Pick the first element from a list satisfying the given
     -- predicate, returning the element and the list with the element
@@ -171,11 +194,11 @@ simplify cs
     -- involves two base types (in which case it can be removed if the
     -- relationship holds).
     simplifiable :: Constraint Type -> Bool
-    simplifiable (Left _) = True
-    simplifiable (Right (TyCons {} :<: TyCons {})) = True
-    simplifiable (Right (TyVar  {} :<: TyCons {})) = True
-    simplifiable (Right (TyCons {} :<: TyVar  {})) = True
-    simplifiable (Right (TyAtom a1 :<: TyAtom a2)) = isBase a1 && isBase a2
+    simplifiable (CEqn _) = True
+    simplifiable (CIneqn (TyCons {} :<: TyCons {})) = True
+    simplifiable (CIneqn (TyVar  {} :<: TyCons {})) = True
+    simplifiable (CIneqn (TyCons {} :<: TyVar  {})) = True
+    simplifiable (CIneqn (TyAtom a1 :<: TyAtom a2)) = isBase a1 && isBase a2
 
     -- Simplify the given simplifiable constraint.
     simplifyOne :: Constraint Type -> SimplifyM ()
@@ -183,24 +206,26 @@ simplify cs
     -- If we have an equality constraint, run unification on it.  The
     -- resulting substitution is applied to the remaining constraints
     -- as well as prepended to the current substitution.
-    simplifyOne (Left eqn) =
+    simplifyOne (CEqn eqn) =
       case unify [eqn] of
         Nothing -> throwError NoUnify
-        Just s' -> modify (substs s' *** (s' @@))
+        Just s' -> do
+          constraints %= substs s'
+          curSubst    %= (s' @@)
 
     -- Given a subtyping constraint between two type constructors,
     -- decompose it if the constructors are the same (or fail if they
     -- aren't), taking into account the variance of each argument to
     -- the constructor.
-    simplifyOne (Right (TyCons c1 tys1 :<: TyCons c2 tys2))
+    simplifyOne (CIneqn (TyCons c1 tys1 :<: TyCons c2 tys2))
       | c1 /= c2  = throwError NoUnify
-      | otherwise = modify (first (zipWith3 variance (arity c1) tys1 tys2 ++))
+      | otherwise = constraints %= (zipWith3 variance (arity c1) tys1 tys2 ++)
 
     -- Given a subtyping constraint between a variable and a type
     -- constructor, expand the variable into the same constructor
     -- applied to fresh type variables.
-    simplifyOne con@(Right (TyVar a    :<: TyCons c _)) = expandStruct a c con
-    simplifyOne con@(Right (TyCons c _ :<: TyVar a   )) = expandStruct a c con
+    simplifyOne con@(CIneqn (TyVar a    :<: TyCons c _)) = expandStruct a c con
+    simplifyOne con@(CIneqn (TyCons c _ :<: TyVar a   )) = expandStruct a c con
 
     -- Given a subtyping constraint between two base types, just check
     -- whether the first is indeed a subtype of the second.  (Note
@@ -208,7 +233,7 @@ simplify cs
     -- include variables, but this will only ever get called if
     -- 'simplifiable' was true, which checks that both are base
     -- types.)
-    simplifyOne (Right (TyAtom a1 :<: TyAtom a2)) = do
+    simplifyOne (CIneqn (TyAtom a1 :<: TyAtom a2)) = do
       case isSub a1 a2 of
         True  -> return ()
         False -> throwError NoUnify
@@ -217,7 +242,8 @@ simplify cs
     expandStruct a c con = do
       as <- mapM (const (TyVar <$> fresh (string2Name "a"))) (arity c)
       let s' = a |-> TyCons c as
-      modify ((substs s' . (con:)) *** (s'@@))
+      constraints %= (substs s' . (con:))
+      curSubst    %= (s'@@)
 
 
     -- Create a subtyping constraint based on the variance of a type

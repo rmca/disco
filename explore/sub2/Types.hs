@@ -4,20 +4,21 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternSynonyms       #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans  #-}
+
 module Types where
 
 import           Data.Coerce  (coerce)
 import           GHC.Generics (Generic)
 
 import           Data.List    (nub)
-import           Data.Map     (Map, (!))
+import           Data.Map     (Map)
 import qualified Data.Map     as M
 import           Data.Set     (Set)
 import qualified Data.Set     as S
 
 import           Control.Arrow ((***))
 import           Control.Lens (toListOf)
-import           Data.Set.Lens (setOf)
 
 import           Unbound.Generics.LocallyNameless
 
@@ -145,6 +146,31 @@ pattern TyFun ty1 ty2 = TyCons CArr [ty1, ty2]
 
 pattern TyPair :: Type -> Type -> Type
 pattern TyPair ty1 ty2 = TyCons CPair [ty1, ty2]
+
+------------------------------------------------------------
+-- Classes
+------------------------------------------------------------
+
+data Class where
+  Numeric  :: Class
+  Negative :: Class
+  deriving (Eq, Ord, Show, Generic)
+
+type Sort = Set Class
+
+instance Alpha Class
+instance Subst t Class
+
+classArity :: Cons -> Class -> Maybe [Sort]
+classArity CArr Numeric  = Nothing -- Just [S.empty, S.fromList [Numeric]]
+classArity CArr Negative = Nothing -- Just [S.empty, S.fromList [Negative]]
+
+classArity CPair Numeric  = Nothing -- for now
+classArity CPair Negative = Nothing
+
+inClass :: Class -> Atom -> Bool
+inClass Numeric  a = a `elem` [ANat, AInt]
+inClass Negative a = (a == AInt)
 
 ------------------------------------------------------------
 -- Sigma types

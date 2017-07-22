@@ -30,39 +30,31 @@
 module Sub2 where
 
 
-import Debug.Trace
+-- import Debug.Trace
 
-
-import Data.Coerce
 
 import           Parsing2
 import qualified Graph as G
 import           Graph (Graph)
-import           Subst
 import           Types
 import           Constraints
 import           Solve
 
 import Prelude hiding (lookup)
-import qualified Prelude as P
 
 import GHC.Generics (Generic)
 import Unbound.Generics.LocallyNameless
 import Unbound.Generics.LocallyNameless.Unsafe (unsafeUnbind)
 
-import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
 import Control.Monad.Writer
 import           Data.Bifunctor
-import           Data.Either
 import           Data.List (intercalate)
-import           Data.Map (Map, (!))
+import           Data.Map (Map)
 import qualified Data.Map    as M
-import           Data.Set (Set)
 import qualified Data.Set    as S
 import           Data.Maybe
-import           Data.Void
 import           Text.Printf
 
 ------------------------------------------------------------
@@ -222,14 +214,14 @@ freshTy = TyVar <$> fresh (string2Name "a")
 
 infer :: Expr -> TC Type
 infer (EVar x) = lookup x
-infer (ENat i) = return TyNat
+infer (ENat _) = return TyNat
 infer EPlus    = do
   a <- freshTy
-  tell [a =<= TyInt]
+  tell [is Numeric a]
   return $ TyFun a (TyFun a a)
 infer ENeg     = do
   a <- freshTy
-  tell [a =<= TyInt]
+  tell [is Negative a]
 --  traceM (prettyTy ENeg $ TyFun a TyInt)  -- DEBUG
   return $ TyFun a TyInt
 infer ESqrt    = do
@@ -308,7 +300,8 @@ interp' (EVar x)       = (fromJust . M.lookup x) <$> ask
 interp' (ENat n)       = return $ VInt n
 interp' EPlus          = return $ VFun (\(VInt i) -> VFun (\(VInt j) -> VInt (i+j)))
 interp' ENeg           = return $ VFun (\(VInt i) -> VInt (-i))
-interp' ESqrt          = return $ VFun (\(VInt i) -> VInt $ round (sqrt (fromIntegral i)))
+interp' ESqrt          = return $ VFun (\(VInt i) ->
+                                          VInt $ round (sqrt (fromIntegral i) :: Double))
 interp' (EPair e1 e2)  = VPair <$> interp' e1 <*> interp' e2
 interp' EFst           = return $ VFun (\(VPair v1 _) -> v1)
 interp' ESnd           = return $ VFun (\(VPair _ v2) -> v2)
@@ -374,7 +367,7 @@ instance Pretty Expr where
   prettyPrec p a (EApp (EApp EPlus e1) e2) =
     mparens (p>1 || (p==1 && a == R)) $
       (prettyPrec 1 L e1 ++ " + " ++ prettyPrec 1 R e2)
-  prettyPrec p a (EApp ENeg e) = "-" ++ prettyPrec 2 R e
+  prettyPrec _ _ (EApp ENeg e) = "-" ++ prettyPrec 2 R e
 
   prettyPrec p _ (ELam b) =
     mparens (p>0) $
@@ -410,6 +403,7 @@ instance Pretty Value where
   pretty (VFun _) = "<fun>"
   pretty (VPair v1 v2) = printf "(%s, %s)" (pretty v1) (pretty v2)
 
+prettyList :: [String] -> String
 prettyList xs = "[" ++ intercalate ", " xs ++ "]"
 
 instance Pretty a => Pretty [a] where
