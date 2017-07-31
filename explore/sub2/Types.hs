@@ -14,6 +14,7 @@ import           GHC.Generics (Generic)
 import           Data.List    (nub)
 import           Data.Map     (Map)
 import qualified Data.Map     as M
+import           Data.Monoid
 import           Data.Set     (Set)
 import qualified Data.Set     as S
 
@@ -29,20 +30,42 @@ import           Subst
 ------------------------------------------------------------
 
 data Atom where
-  AVar :: Name Type -> Atom
+  AVar :: Name Type -> Sort -> Atom
   ANat :: Atom
   AInt :: Atom
   deriving (Show, Eq, Ord, Generic)
 
+newtype Opaque a = Opaque { getOpaque :: a }
+  deriving (Eq, Ord, Show)
+
+instance (Show a, Ord a) => Alpha (Opaque a) where
+  aeq'        _        = (==)
+  fvAny'      _ _      = pure
+  close       _ _      = id
+  open        _ _      = id
+  isPat       _        = mempty
+  isTerm      _        = mempty
+  nthPatFind  _        = mempty
+  namePatFind _        = mempty
+  swaps'      _ _      = id
+  freshen'    _ i      = return (i,mempty)
+  lfreshen'   _ i cont = cont i mempty
+  acompare'   _        = compare
+
+instance Subst t (Opaque a) where
+  isvar _ = Nothing
+  subst _ _ = id
+  substs _ = id
+
 instance Alpha Atom
 
 instance Subst Atom Atom where
-  isvar (AVar x) = Just (SubstName (coerce x))
-  isvar _        = Nothing
+  isvar (AVar x _) = Just (SubstName (coerce x))
+  isvar _          = Nothing
 
 isVar :: Atom -> Bool
-isVar (AVar _) = True
-isVar _        = False
+isVar (AVar {}) = True
+isVar _         = False
 
 isBase :: Atom -> Bool
 isBase = not . isVar
@@ -109,8 +132,8 @@ instance Alpha Type
 instance Subst Type Atom
 instance Subst Type Cons
 instance Subst Type Type where
-  isvar (TyAtom (AVar x)) = Just (SubstName x)
-  isvar _                 = Nothing
+  isvar (TyAtom (AVar x _)) = Just (SubstName x)
+  isvar _                   = Nothing
 
 -- orphans
 instance (Ord a, Subst t a) => Subst t (Set a) where
@@ -130,10 +153,13 @@ atomToTypeSubst = map (coerce *** TyAtom)
 ------------------------------------------------------------
 
 var :: String -> Type
-var x = TyVar (string2Name x)
+var x = TyVar (string2Name x) top
 
-pattern TyVar :: Name Type -> Type
-pattern TyVar v = TyAtom (AVar v)
+freshTy :: Fresh m => m Type
+freshTy = TyVar <$> fresh (string2Name "a") <*> pure top
+
+pattern TyVar :: Name Type -> Sort -> Type
+pattern TyVar v s = TyAtom (AVar v s)
 
 pattern TyNat :: Type
 pattern TyNat   = TyAtom ANat
@@ -156,21 +182,57 @@ data Class where
   Negative :: Class
   deriving (Eq, Ord, Show, Generic)
 
-type Sort = Set Class
-
 instance Alpha Class
 instance Subst t Class
 
-classArity :: Cons -> Class -> Maybe [Sort]
-classArity CArr Numeric  = Nothing -- Just [S.empty, S.fromList [Numeric]]
-classArity CArr Negative = Nothing -- Just [S.empty, S.fromList [Negative]]
+type Sort = Opaque (Set Class)
 
-classArity CPair Numeric  = Nothing -- for now
-classArity CPair Negative = Nothing
+member :: Class -> Sort -> Bool
+member c (Opaque s) = c `S.member` s
 
-inClass :: Class -> Atom -> Bool
-inClass Numeric  a = a `elem` [ANat, AInt]
-inClass Negative a = (a == AInt)
+union :: Sort -> Sort -> Sort
+union (Opaque s1) (Opaque s2) = Opaque (s1 `S.union` s2)
+
+top :: Sort
+top = Opaque S.empty
+
+-- Given a type constructor application C ty1 ... tyn, what sorts are
+-- necessary for each of the types ty1, ..., tyn in order for the
+-- application C ty1 .. tyn to have a given sort?
+data SortArity
+  = Impossible
+  | ArgSorts [Sort]
+
+instance Monoid SortArity where
+  mempty = ArgSorts []
+  Impossible `mappend` _ = Impossible
+  _ `mappend` Impossible = Impossible
+  ArgSorts s1 `mappend` ArgSorts s2 = ArgSorts (zipWith union s1 s2)
+
+classArity :: Cons -> Class -> SortArity
+classArity CArr Numeric  = Impossible -- Just [S.empty, S.fromList [Numeric]]
+classArity CArr Negative = Impossible -- Just [S.empty, S.fromList [Negative]]
+
+classArity CPair Numeric  = Impossible -- for now
+classArity CPair Negative = Impossible
+
+sortArity :: Cons -> Sort -> SortArity
+sortArity c = foldMap (classArity c) . getOpaque
+
+atomInClass :: Class -> Atom -> Bool
+atomInClass c (AVar _ (Opaque s)) = S.member c s
+atomInClass Numeric  a            = a `elem` [ANat, AInt]
+atomInClass Negative a            = (a == AInt)
+
+inClass :: Class -> Type -> Bool
+inClass cl (TyAtom a)     = atomInClass cl a
+inClass cl (TyCons c tys) =
+  case classArity c cl of
+    Impossible  -> False
+    ArgSorts ss -> and $ zipWith inSort ss tys
+
+inSort :: Sort -> Type -> Bool
+inSort (Opaque s) ty = getAll $ foldMap (All . flip inClass ty) s
 
 ------------------------------------------------------------
 -- Sigma types
@@ -188,4 +250,4 @@ generalize ty = Forall (bind newvs (substs newvsubst ty))
   where
     fvlist = nub $ toListOf fv ty
     newvs  = take (length fvlist) $ map (string2Name . (:[])) ['a' .. 'z']
-    newvsubst = zip fvlist (map TyVar newvs)
+    newvsubst = zip fvlist (map (\n -> TyVar n top) newvs)

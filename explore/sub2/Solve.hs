@@ -137,7 +137,6 @@ simplify cs
   <$> contFreshMT (execStateT simplify' initSimplifyState) n
   where
 
-    -- XXX need to set up initial Sort map?
     initSimplifyState = initSS & constraints .~ cs
 
     n = succ . maximum0 . map (name2Integer :: Name Type -> _) . toListOf fv $ cs
@@ -194,7 +193,8 @@ simplify cs
     -- involves two base types (in which case it can be removed if the
     -- relationship holds).
     simplifiable :: Constraint Type -> Bool
-    simplifiable (CEqn _) = True
+    simplifiable (CQual _) = True
+    simplifiable (CEqn _)  = True
     simplifiable (CIneqn (TyCons {} :<: TyCons {})) = True
     simplifiable (CIneqn (TyVar  {} :<: TyCons {})) = True
     simplifiable (CIneqn (TyCons {} :<: TyVar  {})) = True
@@ -202,6 +202,10 @@ simplify cs
 
     -- Simplify the given simplifiable constraint.
     simplifyOne :: Constraint Type -> SimplifyM ()
+
+    simplifyOne (CQual (Is cl (TyVar v srt)))
+      | member cl srt = return ()
+      | otherwise     = curSubst %= 
 
     -- If we have an equality constraint, run unification on it.  The
     -- resulting substitution is applied to the remaining constraints
@@ -224,8 +228,8 @@ simplify cs
     -- Given a subtyping constraint between a variable and a type
     -- constructor, expand the variable into the same constructor
     -- applied to fresh type variables.
-    simplifyOne con@(CIneqn (TyVar a    :<: TyCons c _)) = expandStruct a c con
-    simplifyOne con@(CIneqn (TyCons c _ :<: TyVar a   )) = expandStruct a c con
+    simplifyOne con@(CIneqn (TyVar a _  :<: TyCons c _)) = expandStruct a c con
+    simplifyOne con@(CIneqn (TyCons c _ :<: TyVar a _ )) = expandStruct a c con
 
     -- Given a subtyping constraint between two base types, just check
     -- whether the first is indeed a subtype of the second.  (Note
@@ -240,7 +244,7 @@ simplify cs
 
     expandStruct :: Name Type -> Cons -> Constraint Type -> SimplifyM ()
     expandStruct a c con = do
-      as <- mapM (const (TyVar <$> fresh (string2Name "a"))) (arity c)
+      as <- mapM (const freshTy) (arity c)
       let s' = a |-> TyCons c as
       constraints %= (substs s' . (con:))
       curSubst    %= (s'@@)
@@ -338,7 +342,8 @@ solveGraph g = (atomToTypeSubst . unifyWCC) <$> go ss ps
     unifyWCC s = concatMap mkEquateSubst wccVarGroups @@ s
       where
         wccVarGroups  = filter (all isVar) . substs s $ G.wcc g
-        mkEquateSubst = (\(a:as) -> map (\(AVar v) -> (coerce v, a)) as) . S.toList
+        mkEquateSubst = (\(a:as) -> map (\(AVar v _) -> (coerce v, a)) as) . S.toList
+        -- XXX check above (AVar v _)
 
     -- Get the successor and predecessor sets for all the type variables.
     (ss, ps) = (onlyVars *** onlyVars) $ G.cessors g
@@ -397,7 +402,7 @@ solveGraph g = (atomToTypeSubst . unifyWCC) <$> go ss ps
         -- Solve for a variable, failing if it has no solution, otherwise returning
         -- a substitution for it.
         solveVar :: Atom -> Maybe (S' Atom)
-        solveVar a@(AVar v) =
+        solveVar a@(AVar v _) =
           case (filter isBase (S.toList $ succs ! a), filter isBase (S.toList $ preds ! a)) of
             ([], []) ->
               error $ "Impossible! solveGraph.solveVar called on variable "

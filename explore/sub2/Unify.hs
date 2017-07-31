@@ -49,10 +49,14 @@ occurs x = anyOf fv (==x)
 unifyOne :: (Atom -> Atom -> Bool) -> Eqn Type -> Maybe (Either S [Eqn Type])
 unifyOne _ (ty1 :=: ty2)
   | ty1 == ty2 = return $ Left idS
-unifyOne _ (TyVar x :=: ty2)
-  | occurs x ty2 = Nothing
-  | otherwise    = Just $ Left (x |-> ty2)
-unifyOne atomEq (ty1 :=: x@(TyVar _))
+unifyOne _ (TyVar x1 srt1 :=: TyVar x2 srt2) =
+  let srt' = srt1 `union` srt2
+  in return . Left $ (x1 |-> TyVar x1 srt') @@ (x2 |-> TyVar x1 srt')
+unifyOne _ (TyVar x srt :=: ty2)
+  | not (inSort srt ty2) = Nothing
+  | occurs x ty2         = Nothing
+  | otherwise            = return $ Left (x |-> ty2)
+unifyOne atomEq (ty1 :=: x@(TyVar _ _))
   = unifyOne atomEq (x :=: ty1)
 unifyOne _ (TyCons c1 tys1 :=: TyCons c2 tys2)
   | c1 == c2  = return $ Right (zipWith (:=:) tys1 tys2)
@@ -60,7 +64,7 @@ unifyOne _ (TyCons c1 tys1 :=: TyCons c2 tys2)
 unifyOne atomEq (TyAtom a1 :=: TyAtom a2)
   | atomEq a1 a2 = return $ Left idS
   | otherwise    = Nothing
-unifyOne _ _ = Nothing  -- Atom = Cons
+unifyOne _ _     = Nothing  -- Atom = Cons
 
 unifyAtoms :: [Atom] -> Maybe (S' Atom)
 unifyAtoms = fmap convert . equate . map TyAtom

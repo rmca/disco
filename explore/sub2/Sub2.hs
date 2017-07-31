@@ -15,8 +15,9 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
--- STLC extended with a bit of arithmetic and some simple subtyping.
--- Implementation of Traytel et al (APLAS 2011).  Just inference/type
+-- STLC extended with a bit of arithmetic, some simple subtyping, and
+-- (only built-in) type classes.  Implementation of Traytel et al
+-- (APLAS 2011) including section 4.  Just inference/type
 -- reconstruction (will try a bidirectional variant later).
 
 -- Next steps:
@@ -205,9 +206,6 @@ lookup x = do
     Nothing -> throwError $ Unbound x
     Just ty -> return ty
 
-freshTy :: TC Type
-freshTy = TyVar <$> fresh (string2Name "a")
-
 -- DEBUG
 -- prettyTy :: Expr -> Type -> String
 -- prettyTy e t = pretty e ++ " : " ++ pretty t
@@ -342,12 +340,16 @@ instance Pretty Type where
     mparens (p > 0) $ prettyPrec 1 L ty1 ++ " -> " ++ prettyPrec 0 R ty2
   prettyPrec _ _ (TyPair ty1 ty2) =
     mparens True $ prettyPrec 0 L ty1 ++ ", " ++ prettyPrec 0 R ty2
-  prettyPrec _ _ (TyVar x) = show x
+  prettyPrec _ _ (TyVar x (Opaque s))
+    | S.null s  = show x
+    | otherwise = "(" ++ show x ++ " : " ++ show (S.toList s) ++ ")"
 
 instance Pretty Atom where
   pretty ANat = "N"
   pretty AInt = "Z"
-  pretty (AVar v) = show v
+  pretty (AVar v (Opaque s))
+    | S.null s  = show v
+    | otherwise = "(" ++ show v ++ " : " ++ show (S.toList s) ++ ")"
 
 mparens :: Bool -> String -> String
 mparens True  = ("("++) . (++")")
