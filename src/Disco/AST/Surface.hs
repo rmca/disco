@@ -6,7 +6,10 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternSynonyms       #-}
+{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
 -----------------------------------------------------------------------------
@@ -27,7 +30,7 @@ module Disco.AST.Surface
          -- ** Documentation
        , Docs, DocMap, DocThing(..), Property
          -- ** Declarations
-       , Decl(..), declName, isDefn
+       , Decl_(..), declName, isDefn
 
          -- * Terms
        , Side(..), Link(..)
@@ -39,6 +42,7 @@ module Disco.AST.Surface
        )
        where
 
+import           Data.Void
 import           Data.Map                         (Map)
 import           GHC.Generics                     (Generic)
 
@@ -46,6 +50,10 @@ import           Unbound.Generics.LocallyNameless
 
 import           Disco.Types
 import           Disco.Syntax.Operators
+
+------------------------------------------------------------
+-- Modules
+------------------------------------------------------------
 
 -- | A module is a list of declarations together with a collection of
 --   documentation for top-level names.
@@ -74,21 +82,47 @@ data DocThing
 type Property = Bind [(Name Term, Type)] Term
 
 -- | A declaration is either a type declaration or a definition.
-data Decl where
+data Decl_ x where
 
   -- | A type declaration, @name : type@.
-  DType :: Name Term -> Type -> Decl
+  DType_ :: DTypeX x -> Name Term -> Type -> Decl_ x
 
   -- | A group of definition clauses of the form @name pat1 .. patn = term@. The
   --   patterns bind variables in the term. For example, @f n (x,y) =
   --   n*x + y@.
-  DDefn :: Name Term -> [Bind [Pattern] Term] -> Decl
-  deriving Show
+  DDefn_ :: DDefnX x -> Name Term -> [Bind [Pattern] Term] -> Decl_ x
+
+  DeclX_ :: DeclX x -> Decl_ x
+
+deriving instance (Show (DTypeX x), Show (DDefnX x), Show (DeclX x)) => Show (Decl_ x)
+
+type family DTypeX x
+type family DDefnX x
+type family DeclX x
+
+data UD
+
+type instance DTypeX UD = ()
+type instance DDefnX UD = ()
+type instance DeclX  UD = Void
+
+type Decl = Decl_ UD
+
+pattern DType :: Name Term -> Type -> Decl_ UD
+pattern DType x ty <- DType_ _  x ty
+  where DType x ty =  DType_ () x ty
+
+pattern DDefn :: Name Term -> [Bind [Pattern] Term] -> Decl_ UD
+pattern DDefn x clauses <- DDefn_ _  x clauses
+  where DDefn x clauses =  DDefn_ () x clauses
+
+{-# COMPLETE DType, DDefn #-}  -- not recognized by GHC 8.0
 
 -- | Get the name that a declaration is about.
 declName :: Decl -> Name Term
 declName (DType x _) = x
 declName (DDefn x _) = x
+declName (DeclX_ v)  = absurd v
 
 -- | Check whether a declaration is a definition.
 isDefn :: Decl -> Bool
