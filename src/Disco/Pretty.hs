@@ -265,7 +265,6 @@ prettyPattern (PTup ts) = do
   parens (hsep ds)
 prettyPattern (PInj s p) = prettySide s <+> prettyPattern p
 prettyPattern (PNat n) = integer n
-prettyPattern (PSucc p) = text "S" <+> prettyPattern p
 prettyPattern (PCons {}) = error "prettyPattern PCons unimplemented"
 prettyPattern (PList {}) = error "prettyPattern PCons unimplemented"
 

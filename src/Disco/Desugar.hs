@@ -275,5 +275,5 @@ desugarTuplePats (p:ps)  = do
   dps <- desugarTuplePats ps
   return $ CPCons 0 [dp, dps]
 
-desugarArithPat :: Term -> CPattern
-desugarArithPat (TNat n) = 
+desugarArithPat :: Term -> DSM Core
+desugarArithPat = undefined
