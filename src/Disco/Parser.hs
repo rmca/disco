@@ -718,13 +718,29 @@ tuplePat []  = PUnit
 tuplePat [x] = x
 tuplePat t   = PTup t
 
--- | Parse a pattern.
+-- | Parse a pattern, which could be a pattern expression (consisting
+--   of left, right, or :: applied to other patterns), or an arithmetic
+--   pattern.
 parsePattern :: Parser Pattern
-parsePattern = makeExprParser parseAtomicPattern table <?> "pattern"
+parsePattern
+  =   try parsePatternExpr
+  <|> PArith <$> parseTerm
+      -- When parsing we'll accept any term in a PArith.  Lots will
+      -- get ruled out during type checking, of course.  But this
+      -- means we can support patterns like e.g.
+      --
+      --   f (10! + 2^3 + x)
+      --
+      -- where other arithmetic computation happens to determine the
+      -- pattern.
+
+-- | Parse a pattern, consisting of left, right, or :: applied to
+--   atomic patterns.
+parsePatternExpr :: Parser Pattern
+parsePatternExpr = makeExprParser parseAtomicPattern table <?> "pattern"
   where
     table = [ [ prefix "left" (PInj L)
               , prefix "right" (PInj R)
-              , prefix "S"   PSucc
               ]
             , [ infixR "::" PCons ]
             ]

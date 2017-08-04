@@ -555,11 +555,6 @@ match v (CPNat n)     = do
   case m == n % 1 of
     False -> noMatch
     True  -> ok
-match v (CPSucc p) = do
-  VNum _ n <- whnfV v
-  case n > 0 of
-    True  -> match (vnum (n-1)) p
-    False -> noMatch
 
 -- | Convenience function: successfully match with no bindings.
 ok :: IM (Maybe Env)

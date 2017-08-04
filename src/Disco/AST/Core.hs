@@ -204,8 +204,8 @@ data CPattern where
   -- | A natural number pattern.
   CPNat  :: Integer -> CPattern
 
-  -- | A successor pattern, @S p@.
-  CPSucc :: CPattern -> CPattern
+  -- | An arithmetic pattern.
+  CPArith :: Core -> CPattern
 
   deriving (Show, Generic)
 

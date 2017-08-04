@@ -62,7 +62,7 @@ import           Prelude                                 hiding (lookup)
 
 import           Control.Applicative                     ((<|>))
 import           Control.Arrow                           ((&&&))
-import           Control.Lens                            ((%~), (&), _1, _2)
+import           Control.Lens                            ((%~), (&), _1, _2, toListOf)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -134,6 +134,7 @@ data TCError
   | NotList Term Type      -- ^ Should have a list type, but expected to have some other type
   | NotSubtractive Type
   | NotFractional Type
+  | ArithPatVars Term      -- ^ Conflicting variables in an arithmetic pattern.
   | NoError                -- ^ Not an error.  The identity of the
                            --   @Monoid TCError@ instance.
   deriving Show
@@ -899,11 +900,13 @@ checkPattern (PInj L p) (TySum ty1 _)       = checkPattern p ty1
 checkPattern (PInj R p) (TySum _ ty2)       = checkPattern p ty2
 checkPattern (PNat _)   ty | isSub TyN ty   = ok
   -- we can match any supertype of TyN against a Nat pattern
-checkPattern (PSucc p)  TyN                 = checkPattern p TyN
 checkPattern (PCons p1 p2) (TyList ty)      =
   joinCtx <$> checkPattern p1 ty <*> checkPattern p2 (TyList ty)
-checkPattern (PList ps) (TyList ty) =
+checkPattern (PList ps) (TyList ty)         =
   joinCtxs <$> mapM (flip checkPattern ty) ps
+checkPattern (PArith t) ty
+  | isNumTy ty = checkArithPattern t ty
+  | otherwise  = throwError (NotNumTy ty)
 
 checkPattern p ty = throwError (PatternType p ty)
 
@@ -917,6 +920,36 @@ checkTuplePat (p:ps) (TyPair ty1 ty2) = do
   ctxs <- checkTuplePat ps ty2
   return (ctx:ctxs)
 checkTuplePat ps ty = throwError $ NotTuplePattern (PTup ps) ty
+
+-- XXX
+-- Invariant: the type is always numeric
+--
+-- XXX should we turn it into something more structured, with types
+-- in?  Probably doesn't matter.
+checkArithPattern :: Term -> Type -> TCM Ctx
+checkArithPattern (TNat _) ty | isSub TyN ty = ok
+checkArithPattern (TVar x) ty                = return $ singleCtx x ty
+checkArithPattern t@(TBin op t1 t2) ty | op `elem` [Add, Sub, Mul]
+  = case (toListOf fvAny t1, toListOf fvAny t2) of
+      (_, []) -> do
+        ctx <- checkArithPattern t1 ty
+        _ <- check t2 ty
+        return ctx
+      ([], _) -> do
+        _ <- check t1 ty
+        ctx <- checkArithPattern t2 ty
+        return ctx
+      _       -> throwError $ ArithPatVars t
+checkArithPattern (TUn Neg t) ty = do
+  _ <- checkSubtractive ty
+  checkArithPattern t (positivizeTy ty)
+checkArithPattern (TBin Div t1 t2) ty = do
+  _ <- checkFractional ty
+  ctx1 <- checkArithPattern t1 (integralizeTy ty)
+  ctx2 <- checkArithPattern t2 (integralizeTy ty)
+  return $ joinCtx ctx1 ctx2
+
+checkArithPattern t ty = throwError (PatternType (PArith t) ty)
 
 -- | Successfully return the empty context.  A convenience method for
 --   checking patterns that bind no variables.

@@ -410,17 +410,16 @@ data Pattern where
   -- | Literal natural number pattern.
   PNat  :: Integer -> Pattern
 
-  -- | Successor pattern, @S p@.
-  PSucc :: Pattern -> Pattern
-
   -- | Cons pattern @p1 :: p2@.
   PCons :: Pattern -> Pattern -> Pattern
 
   -- | List pattern @[p1, .., pn]@.
   PList :: [Pattern] -> Pattern
 
+  -- | Arithmetic pattern like @3x + 1@.
+  PArith :: Term -> Pattern
+
   deriving (Show, Generic)
-  -- TODO: figure out how to match on Z or Q!
 
 instance Alpha Side
 instance Alpha UOp
@@ -440,6 +439,8 @@ instance Subst Term Rational where
   subst _ _ = id
   substs _  = id
 
+-- Term does show up in PArith, but we don't need to substitute in it.
+-- Any variables inside a PArith are actually supposed to be binders.
 instance Subst Term Pattern where
   subst _ _ = id
   substs _  = id

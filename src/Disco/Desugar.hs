@@ -82,7 +82,7 @@ desugarDefn def = do
     mkBranch :: [Name Core] -> ATerm -> [Pattern] -> DSM CBranch
     mkBranch xs b ps = do
       b'  <- desugarTerm b
-      let ps' = map desugarPattern ps
+      ps' <- mapM desugarPattern ps
       return $ bind (mkGuards xs ps') b'
 
     mkGuards :: [Name Core] -> [CPattern] -> CGuards
@@ -226,9 +226,10 @@ desugarGuards (AGCons (unrebind -> (ag, ags))) =
       cgs <- desugarGuards ags
       return $ CGCons (rebind (embed c, CPCons (fromEnum True) []) cgs)
     AGPat (unembed -> at) p -> do
-      c <- desugarTerm at
+      c   <- desugarTerm at
       cgs <- desugarGuards ags
-      return $ CGCons (rebind (embed c, desugarPattern p) cgs)
+      dp  <- desugarPattern p
+      return $ CGCons (rebind (embed c, dp) cgs)
 
 desugarQuals :: AQuals -> DSM CQuals
 desugarQuals AQEmpty                        = return CQEmpty
@@ -246,21 +247,33 @@ desugarQual (AQGuard (unembed -> t))  = do
   return $ CQGuard (embed dt)
 
 -- | Desugar a pattern.
-desugarPattern :: Pattern -> CPattern
-desugarPattern (PVar x)      = CPVar (coerce x)
-desugarPattern PWild         = CPWild
-desugarPattern PUnit         = CPCons 0 []
-desugarPattern (PBool b)     = CPCons (fromEnum b) []
+desugarPattern :: Pattern -> DSM CPattern
+desugarPattern (PVar x)      = return $ CPVar (coerce x)
+desugarPattern PWild         = return CPWild
+desugarPattern PUnit         = return $ CPCons 0 []
+desugarPattern (PBool b)     = return $ CPCons (fromEnum b) []
 desugarPattern (PTup p)      = desugarTuplePats p
-desugarPattern (PInj s p)    = CPCons (fromEnum s) [desugarPattern p]
-desugarPattern (PNat n)      = CPNat n
-desugarPattern (PSucc p)     = CPSucc (desugarPattern p)
-desugarPattern (PCons p1 p2) = CPCons 1 [desugarPattern p1, desugarPattern p2]
-desugarPattern (PList ps)    = foldr (\p cp -> CPCons 1 [desugarPattern p, cp])
-                                     (CPCons 0 [])
-                                     ps
+desugarPattern (PInj s p)    = do
+  dp <- desugarPattern p
+  return $ CPCons (fromEnum s) [dp]
+desugarPattern (PNat n)      = return $ CPNat n
+desugarPattern (PCons p1 p2) = do
+  dp1 <- desugarPattern p1
+  dp2 <- desugarPattern p2
+  return $ CPCons 1 [dp1, dp2]
+desugarPattern (PList ps)    = undefined
+                               -- foldr (\p cp -> CPCons 1 [desugarPattern p, cp])
+                               --       (CPCons 0 [])
+                               --       ps
+desugarPattern (PArith t)    = CPArith <$> desugarArithPat t
 
-desugarTuplePats :: [Pattern] -> CPattern
+desugarTuplePats :: [Pattern] -> DSM CPattern
 desugarTuplePats []      = error "Impossible! desugarTuplePats []"
 desugarTuplePats [p]     = desugarPattern p
-desugarTuplePats (p:ps)  = CPCons 0 [desugarPattern p, desugarTuplePats ps]
+desugarTuplePats (p:ps)  = do
+  dp  <- desugarPattern p
+  dps <- desugarTuplePats ps
+  return $ CPCons 0 [dp, dps]
+
+desugarArithPat :: Term -> CPattern
+desugarArithPat (TNat n) = 
